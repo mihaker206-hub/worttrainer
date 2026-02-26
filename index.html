@@ -30,6 +30,12 @@ header {
   background: #0b1220;
 }
 
+#profileBox{
+  text-align:center;
+  padding:10px;
+  background:#111827;
+}
+
 .container {
   padding: 20px;
   max-width: 600px;
@@ -66,13 +72,9 @@ button {
   transition: 0.2s;
 }
 
-button:hover {
-  opacity: 0.9;
-}
+button:hover { opacity: 0.9; }
 
-.delete {
-  background: var(--danger);
-}
+.delete { background: var(--danger); }
 
 .success { color: var(--success); }
 .danger { color: var(--danger); }
@@ -88,22 +90,7 @@ button:hover {
   background: #1e293b;
 }
 
-.nav button.active {
-  background: var(--accent);
-}
-
-.topic-buttons {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-}
-
-.topic-buttons button {
-  flex: 1;
-  background: #334155;
-  font-size: 14px;
-}
+.nav button.active { background: var(--accent); }
 
 .hidden { display: none; }
 </style>
@@ -112,34 +99,27 @@ button:hover {
 
 <header>WortTrainer Pro</header>
 
+<div id="profileBox">
+  <span id="nicknameDisplay"></span>
+  <button onclick="changeNickname()" style="width:auto;padding:6px 10px;margin-left:10px;">Сменить ник</button>
+</div>
+
 <div class="container">
 
 <div class="nav">
   <button onclick="switchTab('add')" id="tabAdd" class="active">Добавить</button>
   <button onclick="switchTab('list')" id="tabList">Слова</button>
   <button onclick="switchTab('test')" id="tabTest">Тест</button>
+  <button onclick="switchTab('cards')" id="tabCards">Карточки</button>
 </div>
 
 <!-- ADD -->
 <div id="addSection">
   <div class="card">
     <input id="word" placeholder="Немецкое слово">
+    <button onclick="startVoiceInput()">🎤 Сказать слово</button>
     <input id="translation" placeholder="Перевод (заполнится автоматически)">
-    
-    <div class="topic-buttons">
-      <button onclick="setTopic('Общее')">Общее</button>
-      <button onclick="setTopic('Работа')">Работа</button>
-      <button onclick="setTopic('B2')">B2</button>
-      <button onclick="setTopic('Экзамен')">Экзамен</button>
-    </div>
-
-    <select id="topic">
-      <option value="Общее">Общее</option>
-      <option value="Работа">Работа</option>
-      <option value="B2">B2</option>
-      <option value="Экзамен">Экзамен</option>
-    </select>
-
+    <input id="topic" placeholder="Тема (можно свою)">
     <button onclick="addWord()">Добавить слово</button>
   </div>
 </div>
@@ -148,10 +128,6 @@ button:hover {
 <div id="listSection" class="hidden">
   <select id="filterTopic" onchange="renderList()">
     <option value="">Все темы</option>
-    <option value="Общее">Общее</option>
-    <option value="Работа">Работа</option>
-    <option value="B2">B2</option>
-    <option value="Экзамен">Экзамен</option>
   </select>
 </div>
 
@@ -169,6 +145,15 @@ button:hover {
   </div>
 </div>
 
+<!-- CARDS -->
+<div id="cardsSection" class="hidden">
+  <div class="card">
+    <div id="cardWord" style="font-size:22px;margin-bottom:10px;"></div>
+    <button onclick="flipCard()">Перевернуть</button>
+    <button onclick="nextCard()">Следующая</button>
+  </div>
+</div>
+
 </div>
 
 <script>
@@ -177,94 +162,120 @@ let currentIndex = 0;
 let correct = 0;
 let wrong = 0;
 
-function save() {
+// ===== ПРОФИЛЬ =====
+let nickname = localStorage.getItem("nickname");
+if(!nickname){
+  nickname = prompt("Введите ваш ник:");
+  if(nickname) localStorage.setItem("nickname", nickname);
+}
+document.getElementById("nicknameDisplay").innerText = "👤 " + nickname;
+
+function changeNickname(){
+  localStorage.removeItem("nickname");
+  location.reload();
+}
+
+function save(){
   localStorage.setItem("words", JSON.stringify(words));
+  updateTopics();
 }
 
-function switchTab(tab) {
-  document.getElementById("addSection").classList.add("hidden");
-  document.getElementById("listSection").classList.add("hidden");
-  document.getElementById("testSection").classList.add("hidden");
+function switchTab(tab){
+  ["add","list","test","cards"].forEach(t=>{
+    document.getElementById(t+"Section").classList.add("hidden");
+    document.getElementById("tab"+t.charAt(0).toUpperCase()+t.slice(1)).classList.remove("active");
+  });
 
-  document.querySelectorAll(".nav button").forEach(b => b.classList.remove("active"));
+  document.getElementById(tab+"Section").classList.remove("hidden");
+  document.getElementById("tab"+tab.charAt(0).toUpperCase()+tab.slice(1)).classList.add("active");
 
-  if(tab === "add") {
-    document.getElementById("addSection").classList.remove("hidden");
-    document.getElementById("tabAdd").classList.add("active");
-  }
-
-  if(tab === "list") {
-    document.getElementById("listSection").classList.remove("hidden");
-    document.getElementById("tabList").classList.add("active");
-    renderList();
-  }
-
-  if(tab === "test") {
-    document.getElementById("testSection").classList.remove("hidden");
-    document.getElementById("tabTest").classList.add("active");
-    startTest();
-  }
+  if(tab==="list") renderList();
+  if(tab==="test") startTest();
+  if(tab==="cards") startCards();
 }
 
-function setTopic(topic) {
-  document.getElementById("topic").value = topic;
-}
-
-async function translateWord(word) {
-  const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=de&tl=ru&dt=t&q=" + encodeURIComponent(word);
-  const res = await fetch(url);
-  const data = await res.json();
+// ===== ПЕРЕВОД =====
+async function translateWord(word){
+  const url="https://translate.googleapis.com/translate_a/single?client=gtx&sl=de&tl=ru&dt=t&q="+encodeURIComponent(word);
+  const res=await fetch(url);
+  const data=await res.json();
   return data[0][0][0];
 }
 
-document.getElementById("word").addEventListener("blur", async () => {
-  const word = document.getElementById("word").value.trim();
-  if(!word) return;
-
-  document.getElementById("translation").value = "Перевод...";
-  try {
-    const translated = await translateWord(word);
-    document.getElementById("translation").value = translated;
-  } catch {
-    document.getElementById("translation").value = "";
+document.getElementById("word").addEventListener("blur", async ()=>{
+  const w=document.getElementById("word").value.trim();
+  if(!w) return;
+  document.getElementById("translation").value="Перевод...";
+  try{
+    document.getElementById("translation").value=await translateWord(w);
+  }catch{
+    document.getElementById("translation").value="";
   }
 });
 
-function addWord() {
-  const word = document.getElementById("word").value.trim();
-  const translation = document.getElementById("translation").value.trim();
-  const topic = document.getElementById("topic").value;
+// ===== ГОЛОС =====
+function startVoiceInput(){
+  if(!('webkitSpeechRecognition' in window)){
+    alert("Используйте Chrome или Edge");
+    return;
+  }
 
-  if(!word || !translation) return alert("Заполни слово");
+  const recognition = new webkitSpeechRecognition();
+  recognition.lang = "de-DE";
+  recognition.start();
 
-  words.push({word, translation, topic});
-  save();
+  recognition.onresult = async function(event){
+    const spokenWord = event.results[0][0].transcript;
+    document.getElementById("word").value = spokenWord;
 
-  document.getElementById("word").value = "";
-  document.getElementById("translation").value = "";
-
-  alert("Слово добавлено!");
+    document.getElementById("translation").value="Перевод...";
+    try{
+      document.getElementById("translation").value=await translateWord(spokenWord);
+    }catch{
+      document.getElementById("translation").value="";
+    }
+  };
 }
 
-function renderList() {
-  const container = document.getElementById("listSection");
-  const filter = document.getElementById("filterTopic").value;
+function addWord(){
+  const word=document.getElementById("word").value.trim();
+  const translation=document.getElementById("translation").value.trim();
+  const topic=document.getElementById("topic").value.trim() || "Без темы";
 
-  container.innerHTML = document.getElementById("filterTopic").outerHTML;
+  if(!word||!translation) return alert("Заполни слово");
 
-  words
-    .filter(w => !filter || w.topic === filter)
-    .forEach((w,i) => {
-      const div = document.createElement("div");
-      div.className = "card";
-      div.innerHTML = `
-        <strong>${w.word}</strong><br>
-        ${w.translation}<br>
-        <small>${w.topic}</small>
-        <button class="delete" onclick="deleteWord(${i})">Удалить</button>
-      `;
-      container.appendChild(div);
-    });
+  words.push({word,translation,topic});
+  save();
+
+  document.getElementById("word").value="";
+  document.getElementById("translation").value="";
+  document.getElementById("topic").value="";
+}
+
+function updateTopics(){
+  const filter=document.getElementById("filterTopic");
+  const unique=[...new Set(words.map(w=>w.topic))];
+  filter.innerHTML='<option value="">Все темы</option>';
+  unique.forEach(t=>filter.innerHTML+=`<option value="${t}">${t}</option>`);
+}
+
+function renderList(){
+  const container=document.getElementById("listSection");
+  const filter=document.getElementById("filterTopic").value;
+  container.innerHTML=document.getElementById("filterTopic").outerHTML;
+
+  words.filter(w=>!filter||w.topic===filter)
+  .forEach((w,i)=>{
+    const div=document.createElement("div");
+    div.className="card";
+    div.innerHTML=`
+      <strong>${w.word}</strong><br>
+      ${w.translation}<br>
+      <small>${w.topic}</small>
+      <button class="delete" onclick="deleteWord(${i})">Удалить</button>
+    `;
+    container.appendChild(div);
+  });
 }
 
 function deleteWord(i){
@@ -273,16 +284,13 @@ function deleteWord(i){
   renderList();
 }
 
+// ===== ТЕСТ =====
 function startTest(){
   if(words.length===0){
     document.getElementById("testWord").innerText="Нет слов";
     return;
   }
-  currentIndex=0;
-  correct=0;
-  wrong=0;
-  updateStats();
-  nextWord();
+  currentIndex=0;correct=0;wrong=0;updateStats();nextWord();
 }
 
 function nextWord(){
@@ -307,15 +315,48 @@ function checkAnswer(){
     document.getElementById("feedback").innerHTML="<span class='danger'>Неправильно! "+correctAnswer+"</span>";
   }
 
-  currentIndex++;
-  updateStats();
-  setTimeout(nextWord,1200);
+  currentIndex++;updateStats();setTimeout(nextWord,1200);
 }
 
 function updateStats(){
   document.getElementById("correct").innerText=correct;
   document.getElementById("wrong").innerText=wrong;
 }
+
+// ===== КАРТОЧКИ =====
+let cardIndex=0;
+let showFront=true;
+
+function startCards(){
+  if(words.length===0){
+    document.getElementById("cardWord").innerText="Нет слов";
+    return;
+  }
+  cardIndex=0;showFront=true;showCard();
+}
+
+function showCard(){
+  if(cardIndex>=words.length){
+    document.getElementById("cardWord").innerText="Карточки закончились";
+    return;
+  }
+  const w=words[cardIndex];
+  document.getElementById("cardWord").innerText=
+    showFront?w.word:w.translation;
+}
+
+function flipCard(){
+  showFront=!showFront;
+  showCard();
+}
+
+function nextCard(){
+  cardIndex++;
+  showFront=true;
+  showCard();
+}
+
+updateTopics();
 </script>
 
 </body>
