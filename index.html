@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WortTrainer Pro</title>
+
+<style>
+:root {
+  --bg: #0f172a;
+  --card: #1e293b;
+  --accent: #3b82f6;
+  --text: #f1f5f9;
+  --danger: #ef4444;
+  --success: #22c55e;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  padding: 20px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: bold;
+  background: #0b1220;
+}
+
+.container {
+  padding: 20px;
+  max-width: 600px;
+  margin: auto;
+}
+
+.card {
+  background: var(--card);
+  padding: 20px;
+  border-radius: 16px;
+  margin-bottom: 15px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+
+input, select, button {
+  width: 100%;
+  padding: 12px;
+  margin-top: 8px;
+  border-radius: 12px;
+  border: none;
+  font-size: 16px;
+}
+
+input, select {
+  background: #334155;
+  color: white;
+}
+
+button {
+  background: var(--accent);
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+.delete {
+  background: var(--danger);
+}
+
+.success { color: var(--success); }
+.danger { color: var(--danger); }
+
+.nav {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.nav button {
+  flex: 1;
+  background: #1e293b;
+}
+
+.nav button.active {
+  background: var(--accent);
+}
+
+.topic-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.topic-buttons button {
+  flex: 1;
+  background: #334155;
+  font-size: 14px;
+}
+
+.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<header>WortTrainer Pro</header>
+
+<div class="container">
+
+<div class="nav">
+  <button onclick="switchTab('add')" id="tabAdd" class="active">Добавить</button>
+  <button onclick="switchTab('list')" id="tabList">Слова</button>
+  <button onclick="switchTab('test')" id="tabTest">Тест</button>
+</div>
+
+<!-- ADD -->
+<div id="addSection">
+  <div class="card">
+    <input id="word" placeholder="Немецкое слово">
+    <input id="translation" placeholder="Перевод (заполнится автоматически)">
+    
+    <div class="topic-buttons">
+      <button onclick="setTopic('Общее')">Общее</button>
+      <button onclick="setTopic('Работа')">Работа</button>
+      <button onclick="setTopic('B2')">B2</button>
+      <button onclick="setTopic('Экзамен')">Экзамен</button>
+    </div>
+
+    <select id="topic">
+      <option value="Общее">Общее</option>
+      <option value="Работа">Работа</option>
+      <option value="B2">B2</option>
+      <option value="Экзамен">Экзамен</option>
+    </select>
+
+    <button onclick="addWord()">Добавить слово</button>
+  </div>
+</div>
+
+<!-- LIST -->
+<div id="listSection" class="hidden">
+  <select id="filterTopic" onchange="renderList()">
+    <option value="">Все темы</option>
+    <option value="Общее">Общее</option>
+    <option value="Работа">Работа</option>
+    <option value="B2">B2</option>
+    <option value="Экзамен">Экзамен</option>
+  </select>
+</div>
+
+<!-- TEST -->
+<div id="testSection" class="hidden">
+  <div class="card">
+    <div id="testWord" style="font-size:22px;margin-bottom:10px;"></div>
+    <input id="answerInput" placeholder="Ваш перевод">
+    <button onclick="checkAnswer()">Ответить</button>
+    <div id="feedback" style="margin-top:10px;"></div>
+    <div style="margin-top:10px;">
+      ✅ <span id="correct">0</span> |
+      ❌ <span id="wrong">0</span>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+let words = JSON.parse(localStorage.getItem("words")) || [];
+let currentIndex = 0;
+let correct = 0;
+let wrong = 0;
+
+function save() {
+  localStorage.setItem("words", JSON.stringify(words));
+}
+
+function switchTab(tab) {
+  document.getElementById("addSection").classList.add("hidden");
+  document.getElementById("listSection").classList.add("hidden");
+  document.getElementById("testSection").classList.add("hidden");
+
+  document.querySelectorAll(".nav button").forEach(b => b.classList.remove("active"));
+
+  if(tab === "add") {
+    document.getElementById("addSection").classList.remove("hidden");
+    document.getElementById("tabAdd").classList.add("active");
+  }
+
+  if(tab === "list") {
+    document.getElementById("listSection").classList.remove("hidden");
+    document.getElementById("tabList").classList.add("active");
+    renderList();
+  }
+
+  if(tab === "test") {
+    document.getElementById("testSection").classList.remove("hidden");
+    document.getElementById("tabTest").classList.add("active");
+    startTest();
+  }
+}
+
+function setTopic(topic) {
+  document.getElementById("topic").value = topic;
+}
+
+async function translateWord(word) {
+  const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=de&tl=ru&dt=t&q=" + encodeURIComponent(word);
+  const res = await fetch(url);
+  const data = await res.json();
+  return data[0][0][0];
+}
+
+document.getElementById("word").addEventListener("blur", async () => {
+  const word = document.getElementById("word").value.trim();
+  if(!word) return;
+
+  document.getElementById("translation").value = "Перевод...";
+  try {
+    const translated = await translateWord(word);
+    document.getElementById("translation").value = translated;
+  } catch {
+    document.getElementById("translation").value = "";
+  }
+});
+
+function addWord() {
+  const word = document.getElementById("word").value.trim();
+  const translation = document.getElementById("translation").value.trim();
+  const topic = document.getElementById("topic").value;
+
+  if(!word || !translation) return alert("Заполни слово");
+
+  words.push({word, translation, topic});
+  save();
+
+  document.getElementById("word").value = "";
+  document.getElementById("translation").value = "";
+
+  alert("Слово добавлено!");
+}
+
+function renderList() {
+  const container = document.getElementById("listSection");
+  const filter = document.getElementById("filterTopic").value;
+
+  container.innerHTML = document.getElementById("filterTopic").outerHTML;
+
+  words
+    .filter(w => !filter || w.topic === filter)
+    .forEach((w,i) => {
+      const div = document.createElement("div");
+      div.className = "card";
+      div.innerHTML = `
+        <strong>${w.word}</strong><br>
+        ${w.translation}<br>
+        <small>${w.topic}</small>
+        <button class="delete" onclick="deleteWord(${i})">Удалить</button>
+      `;
+      container.appendChild(div);
+    });
+}
+
+function deleteWord(i){
+  words.splice(i,1);
+  save();
+  renderList();
+}
+
+function startTest(){
+  if(words.length===0){
+    document.getElementById("testWord").innerText="Нет слов";
+    return;
+  }
+  currentIndex=0;
+  correct=0;
+  wrong=0;
+  updateStats();
+  nextWord();
+}
+
+function nextWord(){
+  if(currentIndex>=words.length){
+    document.getElementById("testWord").innerText="Тест завершён!";
+    return;
+  }
+  document.getElementById("feedback").innerText="";
+  document.getElementById("answerInput").value="";
+  document.getElementById("testWord").innerText=words[currentIndex].word;
+}
+
+function checkAnswer(){
+  const user=document.getElementById("answerInput").value.trim().toLowerCase();
+  const correctAnswer=words[currentIndex].translation.toLowerCase();
+
+  if(user===correctAnswer){
+    correct++;
+    document.getElementById("feedback").innerHTML="<span class='success'>Правильно!</span>";
+  }else{
+    wrong++;
+    document.getElementById("feedback").innerHTML="<span class='danger'>Неправильно! "+correctAnswer+"</span>";
+  }
+
+  currentIndex++;
+  updateStats();
+  setTimeout(nextWord,1200);
+}
+
+function updateStats(){
+  document.getElementById("correct").innerText=correct;
+  document.getElementById("wrong").innerText=wrong;
+}
+</script>
+
+</body>
+</html>
